@@ -1,6 +1,6 @@
 {
   "name": "gemini-cli-image-extension",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Gemini CLI extension for image generation using CLI OAuth",
   "type": "module",
   "main": "dist/index.js",
