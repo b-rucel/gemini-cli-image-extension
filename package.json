@@ -1,0 +1,6 @@
+{
+  "name": "gemini-cli-image-extension",
+  "description": "Gemini CLI extension for image generation using CLI OAuth",
+  "module": "index.ts",
+  "type": "module"
+}
