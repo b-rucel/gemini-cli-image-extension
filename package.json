@@ -1,6 +1,30 @@
 {
   "name": "gemini-cli-image-extension",
+  "version": "0.0.1",
   "description": "Gemini CLI extension for image generation using CLI OAuth",
-  "module": "index.ts",
-  "type": "module"
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "gemini-cli-image-extension": "./dist/index.js"
+  },
+  "files": [
+    "dist",
+    "gemini-extension.json",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc --watch",
+    "start": "node dist/index.js",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@google/genai": "^1.40.0",
+    "@modelcontextprotocol/sdk": "^1.0.1",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.8.7",
+    "typescript": "^5.6.3"
+  }
 }
