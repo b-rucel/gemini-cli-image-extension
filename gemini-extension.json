@@ -1,14 +1,13 @@
 {
   "name": "gemini-cli-image-extension",
-  "version": "1.0.0",
+  "version": "0.0.2",
   "description": "Generates images using your Gemini CLI Google login",
   "mcpServers": {
     "default": {
       "command": "node",
-      "args": [
-        "dist/index.js"
-      ],
+      "args": ["${extensionPath}${/}dist${/}index.js"],
       "env": {}
     }
   }
 }
+

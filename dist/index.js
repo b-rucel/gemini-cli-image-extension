@@ -21,6 +21,10 @@ var __copyProps = (to, from, except, desc) => {
   return to;
 };
 var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(
+  // If the importer is in node compatibility mode or this is not an ESM
+  // file that has been converted to a CommonJS file using a Babel-
+  // compatible transform (i.e. "__esModule" has not been set), then set
+  // "default" to the CommonJS "module.exports" for node compatibility.
   isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
   mod
 ));
@@ -543,7 +547,7 @@ var require_codegen = __commonJS({
     var Else = class extends BlockNode {
     };
     Else.kind = "else";
-    var If = class extends BlockNode {
+    var If = class _If extends BlockNode {
       constructor(condition, nodes) {
         super(nodes);
         this.condition = condition;
@@ -566,10 +570,10 @@ var require_codegen = __commonJS({
         }
         if (e) {
           if (cond === false)
-            return e instanceof If ? e : e.nodes;
+            return e instanceof _If ? e : e.nodes;
           if (this.nodes.length)
             return this;
-          return new If(not(cond), e instanceof If ? [e] : e.nodes);
+          return new _If(not(cond), e instanceof _If ? [e] : e.nodes);
         }
         if (cond === false || !this.nodes.length)
           return void 0;
@@ -732,12 +736,15 @@ var require_codegen = __commonJS({
       toString() {
         return this._root.render(this.opts);
       }
+      // returns unique name in the internal scope
       name(prefix) {
         return this._scope.name(prefix);
       }
+      // reserves unique name in the external scope
       scopeName(prefix) {
         return this._extScope.name(prefix);
       }
+      // reserves unique name in the external scope and assigns value to it
       scopeValue(prefixOrName, value) {
         const name = this._extScope.value(prefixOrName, value);
         const vs = this._values[name.prefix] || (this._values[name.prefix] = /* @__PURE__ */ new Set());
@@ -747,6 +754,8 @@ var require_codegen = __commonJS({
       getScopeValue(prefix, keyOrRef) {
         return this._extScope.getValue(prefix, keyOrRef);
       }
+      // return code that assigns values in the external scope to the names that are used internally
+      // (same names that were returned by gen.scopeName or gen.scopeValue)
       scopeRefs(scopeName) {
         return this._extScope.scopeRefs(scopeName, this._values);
       }
@@ -760,21 +769,27 @@ var require_codegen = __commonJS({
         this._leafNode(new Def(varKind, name, rhs));
         return name;
       }
+      // `const` declaration (`var` in es5 mode)
       const(nameOrPrefix, rhs, _constant) {
         return this._def(scope_1.varKinds.const, nameOrPrefix, rhs, _constant);
       }
+      // `let` declaration with optional assignment (`var` in es5 mode)
       let(nameOrPrefix, rhs, _constant) {
         return this._def(scope_1.varKinds.let, nameOrPrefix, rhs, _constant);
       }
+      // `var` declaration with optional assignment
       var(nameOrPrefix, rhs, _constant) {
         return this._def(scope_1.varKinds.var, nameOrPrefix, rhs, _constant);
       }
+      // assignment code
       assign(lhs, rhs, sideEffects) {
         return this._leafNode(new Assign(lhs, rhs, sideEffects));
       }
+      // `+=` code
       add(lhs, rhs) {
         return this._leafNode(new AssignOp(lhs, exports.operators.ADD, rhs));
       }
+      // appends passed SafeExpr to code or executes Block
       code(c) {
         if (typeof c == "function")
           c();
@@ -782,6 +797,7 @@ var require_codegen = __commonJS({
           this._leafNode(new AnyCode(c));
         return this;
       }
+      // returns code for object literal for the passed argument list of key-value pairs
       object(...keyValues) {
         const code = ["{"];
         for (const [key, value] of keyValues) {
@@ -796,6 +812,7 @@ var require_codegen = __commonJS({
         code.push("}");
         return new code_1._Code(code);
       }
+      // `if` clause (or statement if `thenBody` and, optionally, `elseBody` are passed)
       if(condition, thenBody, elseBody) {
         this._blockNode(new If(condition));
         if (thenBody && elseBody) {
@@ -807,12 +824,15 @@ var require_codegen = __commonJS({
         }
         return this;
       }
+      // `else if` clause - invalid without `if` or after `else` clauses
       elseIf(condition) {
         return this._elseNode(new If(condition));
       }
+      // `else` clause - only valid after `if` or `else if` clauses
       else() {
         return this._elseNode(new Else());
       }
+      // end `if` statement (needed if gen.if was used only with condition)
       endIf() {
         return this._endBlockNode(If, Else);
       }
@@ -822,13 +842,16 @@ var require_codegen = __commonJS({
           this.code(forBody).endFor();
         return this;
       }
+      // a generic `for` clause (or statement if `forBody` is passed)
       for(iteration, forBody) {
         return this._for(new ForLoop(iteration), forBody);
       }
+      // `for` statement for a range of values
       forRange(nameOrPrefix, from, to, forBody, varKind = this.opts.es5 ? scope_1.varKinds.var : scope_1.varKinds.let) {
         const name = this._scope.toName(nameOrPrefix);
         return this._for(new ForRange(varKind, name, from, to), () => forBody(name));
       }
+      // `for-of` statement (in es5 mode replace with a normal for loop)
       forOf(nameOrPrefix, iterable, forBody, varKind = scope_1.varKinds.const) {
         const name = this._scope.toName(nameOrPrefix);
         if (this.opts.es5) {
@@ -840,6 +863,8 @@ var require_codegen = __commonJS({
         }
         return this._for(new ForIter("of", varKind, name, iterable), () => forBody(name));
       }
+      // `for-in` statement.
+      // With option `ownProperties` replaced with a `for-of` loop for object keys
       forIn(nameOrPrefix, obj, forBody, varKind = this.opts.es5 ? scope_1.varKinds.var : scope_1.varKinds.const) {
         if (this.opts.ownProperties) {
           return this.forOf(nameOrPrefix, (0, code_1._)`Object.keys(${obj})`, forBody);
@@ -847,15 +872,19 @@ var require_codegen = __commonJS({
         const name = this._scope.toName(nameOrPrefix);
         return this._for(new ForIter("in", varKind, name, obj), () => forBody(name));
       }
+      // end `for` loop
       endFor() {
         return this._endBlockNode(For);
       }
+      // `label` statement
       label(label) {
         return this._leafNode(new Label(label));
       }
+      // `break` statement
       break(label) {
         return this._leafNode(new Break(label));
       }
+      // `return` statement
       return(value) {
         const node = new Return();
         this._blockNode(node);
@@ -864,6 +893,7 @@ var require_codegen = __commonJS({
           throw new Error('CodeGen: "return" should have one node');
         return this._endBlockNode(Return);
       }
+      // `try` statement
       try(tryBody, catchCode, finallyCode) {
         if (!catchCode && !finallyCode)
           throw new Error('CodeGen: "try" without "catch" and "finally"');
@@ -881,15 +911,18 @@ var require_codegen = __commonJS({
         }
         return this._endBlockNode(Catch, Finally);
       }
+      // `throw` statement
       throw(error2) {
         return this._leafNode(new Throw(error2));
       }
+      // start self-balancing block
       block(body, nodeCount) {
         this._blockStarts.push(this._nodes.length);
         if (body)
           this.code(body).endBlock(nodeCount);
         return this;
       }
+      // end the current self-balancing block
       endBlock(nodeCount) {
         const len = this._blockStarts.pop();
         if (len === void 0)
@@ -901,12 +934,14 @@ var require_codegen = __commonJS({
         this._nodes.length = len;
         return this;
       }
+      // `function` heading (or definition if funcBody is passed)
       func(name, args = code_1.nil, async, funcBody) {
         this._blockNode(new Func(name, args, async));
         if (funcBody)
           this.code(funcBody).endFunc();
         return this;
       }
+      // end function definition
       endFunc() {
         return this._endBlockNode(Func);
       }
@@ -1187,18 +1222,29 @@ var require_names = __commonJS({
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
     var names = {
+      // validation function arguments
       data: new codegen_1.Name("data"),
+      // data passed to validation function
+      // args passed from referencing schema
       valCxt: new codegen_1.Name("valCxt"),
+      // validation/data context - should not be used directly, it is destructured to the names below
       instancePath: new codegen_1.Name("instancePath"),
       parentData: new codegen_1.Name("parentData"),
       parentDataProperty: new codegen_1.Name("parentDataProperty"),
       rootData: new codegen_1.Name("rootData"),
+      // root data - same as the data passed to the first/top validation function
       dynamicAnchors: new codegen_1.Name("dynamicAnchors"),
+      // used to support recursiveRef and dynamicRef
+      // function scoped variables
       vErrors: new codegen_1.Name("vErrors"),
+      // null or array of validation errors
       errors: new codegen_1.Name("errors"),
+      // counter of validation errors
       this: new codegen_1.Name("this"),
+      // "globals"
       self: new codegen_1.Name("self"),
       scope: new codegen_1.Name("scope"),
+      // JTD serialize/parse name for JSON string and position
       json: new codegen_1.Name("json"),
       jsonPos: new codegen_1.Name("jsonPos"),
       jsonLen: new codegen_1.Name("jsonLen"),
@@ -1281,6 +1327,7 @@ var require_errors = __commonJS({
     var E = {
       keyword: new codegen_1.Name("keyword"),
       schemaPath: new codegen_1.Name("schemaPath"),
+      // also used in JTD errors
       params: new codegen_1.Name("params"),
       propertyName: new codegen_1.Name("propertyName"),
       message: new codegen_1.Name("message"),
@@ -1684,6 +1731,7 @@ var require_code2 = __commonJS({
     exports.reportMissingProp = reportMissingProp;
     function hasPropFunc(gen) {
       return gen.scopeValue("func", {
+        // eslint-disable-next-line @typescript-eslint/unbound-method
         ref: Object.prototype.hasOwnProperty,
         code: (0, codegen_1._)`Object.prototype.hasOwnProperty`
       });
@@ -1993,38 +2041,28 @@ var require_fast_deep_equal = __commonJS({
   "node_modules/fast-deep-equal/index.js"(exports, module) {
     "use strict";
     module.exports = function equal(a, b) {
-      if (a === b)
-        return true;
+      if (a === b) return true;
       if (a && b && typeof a == "object" && typeof b == "object") {
-        if (a.constructor !== b.constructor)
-          return false;
+        if (a.constructor !== b.constructor) return false;
         var length, i, keys;
         if (Array.isArray(a)) {
           length = a.length;
-          if (length != b.length)
-            return false;
+          if (length != b.length) return false;
           for (i = length; i-- !== 0; )
-            if (!equal(a[i], b[i]))
-              return false;
+            if (!equal(a[i], b[i])) return false;
           return true;
         }
-        if (a.constructor === RegExp)
-          return a.source === b.source && a.flags === b.flags;
-        if (a.valueOf !== Object.prototype.valueOf)
-          return a.valueOf() === b.valueOf();
-        if (a.toString !== Object.prototype.toString)
-          return a.toString() === b.toString();
+        if (a.constructor === RegExp) return a.source === b.source && a.flags === b.flags;
+        if (a.valueOf !== Object.prototype.valueOf) return a.valueOf() === b.valueOf();
+        if (a.toString !== Object.prototype.toString) return a.toString() === b.toString();
         keys = Object.keys(a);
         length = keys.length;
-        if (length !== Object.keys(b).length)
-          return false;
+        if (length !== Object.keys(b).length) return false;
         for (i = length; i-- !== 0; )
-          if (!Object.prototype.hasOwnProperty.call(b, keys[i]))
-            return false;
+          if (!Object.prototype.hasOwnProperty.call(b, keys[i])) return false;
         for (i = length; i-- !== 0; ) {
           var key = keys[i];
-          if (!equal(a[key], b[key]))
-            return false;
+          if (!equal(a[key], b[key])) return false;
         }
         return true;
       }
@@ -2875,6 +2913,7 @@ var require_compile = __commonJS({
         parentDataProperty: names_1.default.parentDataProperty,
         dataNames: [names_1.default.data],
         dataPathArr: [codegen_1.nil],
+        // TODO can its length be used as dataLevel if nil is removed?
         dataLevel: 0,
         dataTypes: [],
         definedProperties: /* @__PURE__ */ new Set(),
@@ -3179,8 +3218,7 @@ var require_utils = __commonJS({
     function findToken(str, token) {
       let ind = 0;
       for (let i = 0; i < str.length; i++) {
-        if (str[i] === token)
-          ind++;
+        if (str[i] === token) ind++;
       }
       return ind;
     }
@@ -3324,16 +3362,22 @@ var require_schemes = __commonJS({
     "use strict";
     var { isUUID } = require_utils();
     var URN_REG = /([\da-z][\d\-a-z]{0,31}):((?:[\w!$'()*+,\-.:;=@]|%[\da-f]{2})+)/iu;
-    var supportedSchemeNames = [
-      "http",
-      "https",
-      "ws",
-      "wss",
-      "urn",
-      "urn:uuid"
-    ];
+    var supportedSchemeNames = (
+      /** @type {const} */
+      [
+        "http",
+        "https",
+        "ws",
+        "wss",
+        "urn",
+        "urn:uuid"
+      ]
+    );
     function isValidSchemeName(name) {
-      return supportedSchemeNames.indexOf(name) !== -1;
+      return supportedSchemeNames.indexOf(
+        /** @type {*} */
+        name
+      ) !== -1;
     }
     function wsIsSecure(wsComponent) {
       if (wsComponent.secure === true) {
@@ -3438,53 +3482,80 @@ var require_schemes = __commonJS({
       urnComponent.nss = (uuidComponent.uuid || "").toLowerCase();
       return urnComponent;
     }
-    var http = {
-      scheme: "http",
-      domainHost: true,
-      parse: httpParse,
-      serialize: httpSerialize
-    };
-    var https = {
-      scheme: "https",
-      domainHost: http.domainHost,
-      parse: httpParse,
-      serialize: httpSerialize
-    };
-    var ws = {
-      scheme: "ws",
-      domainHost: true,
-      parse: wsParse,
-      serialize: wsSerialize
-    };
-    var wss = {
-      scheme: "wss",
-      domainHost: ws.domainHost,
-      parse: ws.parse,
-      serialize: ws.serialize
-    };
-    var urn = {
-      scheme: "urn",
-      parse: urnParse,
-      serialize: urnSerialize,
-      skipNormalize: true
-    };
-    var urnuuid = {
-      scheme: "urn:uuid",
-      parse: urnuuidParse,
-      serialize: urnuuidSerialize,
-      skipNormalize: true
-    };
-    var SCHEMES = {
-      http,
-      https,
-      ws,
-      wss,
-      urn,
-      "urn:uuid": urnuuid
-    };
+    var http = (
+      /** @type {SchemeHandler} */
+      {
+        scheme: "http",
+        domainHost: true,
+        parse: httpParse,
+        serialize: httpSerialize
+      }
+    );
+    var https = (
+      /** @type {SchemeHandler} */
+      {
+        scheme: "https",
+        domainHost: http.domainHost,
+        parse: httpParse,
+        serialize: httpSerialize
+      }
+    );
+    var ws = (
+      /** @type {SchemeHandler} */
+      {
+        scheme: "ws",
+        domainHost: true,
+        parse: wsParse,
+        serialize: wsSerialize
+      }
+    );
+    var wss = (
+      /** @type {SchemeHandler} */
+      {
+        scheme: "wss",
+        domainHost: ws.domainHost,
+        parse: ws.parse,
+        serialize: ws.serialize
+      }
+    );
+    var urn = (
+      /** @type {SchemeHandler} */
+      {
+        scheme: "urn",
+        parse: urnParse,
+        serialize: urnSerialize,
+        skipNormalize: true
+      }
+    );
+    var urnuuid = (
+      /** @type {SchemeHandler} */
+      {
+        scheme: "urn:uuid",
+        parse: urnuuidParse,
+        serialize: urnuuidSerialize,
+        skipNormalize: true
+      }
+    );
+    var SCHEMES = (
+      /** @type {Record<SchemeName, SchemeHandler>} */
+      {
+        http,
+        https,
+        ws,
+        wss,
+        urn,
+        "urn:uuid": urnuuid
+      }
+    );
     Object.setPrototypeOf(SCHEMES, null);
     function getSchemeHandler(scheme) {
-      return scheme && (SCHEMES[scheme] || SCHEMES[scheme.toLowerCase()]) || void 0;
+      return scheme && (SCHEMES[
+        /** @type {SchemeName} */
+        scheme
+      ] || SCHEMES[
+        /** @type {SchemeName} */
+        scheme.toLowerCase()
+      ]) || void 0;
     }
     module.exports = {
       wsIsSecure,
@@ -3503,9 +3574,11 @@ var require_fast_uri = __commonJS({
     var { SCHEMES, getSchemeHandler } = require_schemes();
     function normalize(uri, options) {
       if (typeof uri === "string") {
-        uri = serialize(parse3(uri, options), options);
+        uri = /** @type {T} */
+        serialize(parse3(uri, options), options);
       } else if (typeof uri === "object") {
-        uri = parse3(serialize(uri, options), options);
+        uri = /** @type {T} */
+        parse3(serialize(uri, options), options);
       }
       return uri;
     }
@@ -3603,8 +3676,7 @@ var require_fast_uri = __commonJS({
       const options = Object.assign({}, opts);
       const uriTokens = [];
       const schemeHandler = getSchemeHandler(options.scheme || component.scheme);
-      if (schemeHandler && schemeHandler.serialize)
-        schemeHandler.serialize(component, options);
+      if (schemeHandler && schemeHandler.serialize) schemeHandler.serialize(component, options);
       if (component.path !== void 0) {
         if (!options.skipEscape) {
           component.path = escape(component.path);
@@ -3983,6 +4055,7 @@ var require_core = __commonJS({
           }
         }
       }
+      // Adds schema to the instance
       addSchema(schema, key, _meta, _validateSchema = this.opts.validateSchema) {
         if (Array.isArray(schema)) {
           for (const sch of schema)
@@ -4002,10 +4075,13 @@ var require_core = __commonJS({
         this.schemas[key] = this._addSchema(schema, _meta, key, _validateSchema, true);
         return this;
       }
+      // Add schema that will be used to validate other schemas
+      // options in META_IGNORE_OPTIONS are alway set to false
       addMetaSchema(schema, key, _validateSchema = this.opts.validateSchema) {
         this.addSchema(schema, key, true, _validateSchema);
         return this;
       }
+      //  Validate schema against its meta-schema
       validateSchema(schema, throwOrLogError) {
         if (typeof schema == "boolean")
           return true;
@@ -4030,6 +4106,8 @@ var require_core = __commonJS({
         }
         return valid;
       }
+      // Get compiled schema by `key` or `ref`.
+      // (`key` that was passed to `addSchema` or full schema reference - `schema.$id` or resolved id)
       getSchema(keyRef) {
         let sch;
         while (typeof (sch = getSchEnv.call(this, keyRef)) == "string")
@@ -4044,6 +4122,10 @@ var require_core = __commonJS({
         }
         return sch.validate || this._compileSchemaEnv(sch);
       }
+      // Remove cached schema(s).
+      // If no parameter is passed all schemas but meta-schemas are removed.
+      // If RegExp is passed all schemas with key/id matching pattern but meta-schemas are removed.
+      // Even if schema is referenced by other schemas it still can be removed as other schemas have local references.
       removeSchema(schemaKeyRef) {
         if (schemaKeyRef instanceof RegExp) {
           this._removeAllSchemas(this.schemas, schemaKeyRef);
@@ -4079,6 +4161,7 @@ var require_core = __commonJS({
             throw new Error("ajv.removeSchema: invalid parameter");
         }
       }
+      // add "vocabulary" - a collection of keywords
       addVocabulary(definitions) {
         for (const def of definitions)
           this.addKeyword(def);
@@ -4119,6 +4202,7 @@ var require_core = __commonJS({
         const rule = this.RULES.all[keyword];
         return typeof rule == "object" ? rule.definition : !!rule;
       }
+      // Remove keyword
       removeKeyword(keyword) {
         const { RULES } = this;
         delete RULES.keywords[keyword];
@@ -4130,6 +4214,7 @@ var require_core = __commonJS({
         }
         return this;
       }
+      // Add format
       addFormat(name, format) {
         if (typeof format == "string")
           format = new RegExp(format);
@@ -4974,14 +5059,19 @@ var require_validation = __commonJS({
     var const_1 = require_const();
     var enum_1 = require_enum();
     var validation = [
+      // number
       limitNumber_1.default,
       multipleOf_1.default,
+      // string
       limitLength_1.default,
       pattern_1.default,
+      // object
       limitProperties_1.default,
       required_1.default,
+      // array
       limitItems_1.default,
       uniqueItems_1.default,
+      // any
       { keyword: "type", schemaType: ["string", "array"] },
       { keyword: "nullable", schemaType: "boolean" },
       const_1.default,
@@ -5265,6 +5355,7 @@ var require_dependencies = __commonJS({
     missingProperty: ${missingProperty},
     depsCount: ${depsCount},
     deps: ${deps}}`
+      // TODO change to reference
     };
     var def = {
       keyword: "dependencies",
@@ -5330,6 +5421,7 @@ var require_dependencies = __commonJS({
             cxt.mergeValidEvaluated(schCxt, valid);
           },
           () => gen.var(valid, true)
+          // TODO var
         );
         cxt.ok(valid);
       }
@@ -5863,12 +5955,14 @@ var require_applicator = __commonJS({
     var thenElse_1 = require_thenElse();
     function getApplicator(draft2020 = false) {
       const applicator = [
+        // any
         not_1.default,
         anyOf_1.default,
         oneOf_1.default,
         allOf_1.default,
         if_1.default,
         thenElse_1.default,
+        // object
         propertyNames_1.default,
         additionalProperties_1.default,
         dependencies_1.default,
@@ -6388,31 +6482,50 @@ var require_formats = __commonJS({
       return { validate, compare };
     }
     exports.fullFormats = {
+      // date: http://tools.ietf.org/html/rfc3339#section-5.6
       date: fmtDef(date3, compareDate),
+      // date-time: http://tools.ietf.org/html/rfc3339#section-5.6
       time: fmtDef(getTime(true), compareTime),
       "date-time": fmtDef(getDateTime(true), compareDateTime),
       "iso-time": fmtDef(getTime(), compareIsoTime),
       "iso-date-time": fmtDef(getDateTime(), compareIsoDateTime),
+      // duration: https://tools.ietf.org/html/rfc3339#appendix-A
       duration: /^P(?!$)((\d+Y)?(\d+M)?(\d+D)?(T(?=\d)(\d+H)?(\d+M)?(\d+S)?)?|(\d+W)?)$/,
       uri,
       "uri-reference": /^(?:[a-z][a-z0-9+\-.]*:)?(?:\/?\/(?:(?:[a-z0-9\-._~!$&'()*+,;=:]|%[0-9a-f]{2})*@)?(?:\[(?:(?:(?:(?:[0-9a-f]{1,4}:){6}|::(?:[0-9a-f]{1,4}:){5}|(?:[0-9a-f]{1,4})?::(?:[0-9a-f]{1,4}:){4}|(?:(?:[0-9a-f]{1,4}:){0,1}[0-9a-f]{1,4})?::(?:[0-9a-f]{1,4}:){3}|(?:(?:[0-9a-f]{1,4}:){0,2}[0-9a-f]{1,4})?::(?:[0-9a-f]{1,4}:){2}|(?:(?:[0-9a-f]{1,4}:){0,3}[0-9a-f]{1,4})?::[0-9a-f]{1,4}:|(?:(?:[0-9a-f]{1,4}:){0,4}[0-9a-f]{1,4})?::)(?:[0-9a-f]{1,4}:[0-9a-f]{1,4}|(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d\d?))|(?:(?:[0-9a-f]{1,4}:){0,5}[0-9a-f]{1,4})?::[0-9a-f]{1,4}|(?:(?:[0-9a-f]{1,4}:){0,6}[0-9a-f]{1,4})?::)|[Vv][0-9a-f]+\.[a-z0-9\-._~!$&'()*+,;=:]+)\]|(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d\d?)|(?:[a-z0-9\-._~!$&'"()*+,;=]|%[0-9a-f]{2})*)(?::\d*)?(?:\/(?:[a-z0-9\-._~!$&'"()*+,;=:@]|%[0-9a-f]{2})*)*|\/(?:(?:[a-z0-9\-._~!$&'"()*+,;=:@]|%[0-9a-f]{2})+(?:\/(?:[a-z0-9\-._~!$&'"()*+,;=:@]|%[0-9a-f]{2})*)*)?|(?:[a-z0-9\-._~!$&'"()*+,;=:@]|%[0-9a-f]{2})+(?:\/(?:[a-z0-9\-._~!$&'"()*+,;=:@]|%[0-9a-f]{2})*)*)?(?:\?(?:[a-z0-9\-._~!$&'"()*+,;=:@/?]|%[0-9a-f]{2})*)?(?:#(?:[a-z0-9\-._~!$&'"()*+,;=:@/?]|%[0-9a-f]{2})*)?$/i,
+      // uri-template: https://tools.ietf.org/html/rfc6570
       "uri-template": /^(?:(?:[^\x00-\x20"'<>%\\^`{|}]|%[0-9a-f]{2})|\{[+#./;?&=,!@|]?(?:[a-z0-9_]|%[0-9a-f]{2})+(?::[1-9][0-9]{0,3}|\*)?(?:,(?:[a-z0-9_]|%[0-9a-f]{2})+(?::[1-9][0-9]{0,3}|\*)?)*\})*$/i,
+      // For the source: https://gist.github.com/dperini/729294
+      // For test cases: https://mathiasbynens.be/demo/url-regex
       url: /^(?:https?|ftp):\/\/(?:\S+(?::\S*)?@)?(?:(?!(?:10|127)(?:\.\d{1,3}){3})(?!(?:169\.254|192\.168)(?:\.\d{1,3}){2})(?!172\.(?:1[6-9]|2\d|3[0-1])(?:\.\d{1,3}){2})(?:[1-9]\d?|1\d\d|2[01]\d|22[0-3])(?:\.(?:1?\d{1,2}|2[0-4]\d|25[0-5])){2}(?:\.(?:[1-9]\d?|1\d\d|2[0-4]\d|25[0-4]))|(?:(?:[a-z0-9\u{00a1}-\u{ffff}]+-)*[a-z0-9\u{00a1}-\u{ffff}]+)(?:\.(?:[a-z0-9\u{00a1}-\u{ffff}]+-)*[a-z0-9\u{00a1}-\u{ffff}]+)*(?:\.(?:[a-z\u{00a1}-\u{ffff}]{2,})))(?::\d{2,5})?(?:\/[^\s]*)?$/iu,
       email: /^[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*@(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/i,
       hostname: /^(?=.{1,253}\.?$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[-0-9a-z]{0,61}[0-9a-z])?)*\.?$/i,
+      // optimized https://www.safaribooksonline.com/library/view/regular-expressions-cookbook/9780596802837/ch07s16.html
       ipv4: /^(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)$/,
       ipv6: /^((([0-9a-f]{1,4}:){7}([0-9a-f]{1,4}|:))|(([0-9a-f]{1,4}:){6}(:[0-9a-f]{1,4}|((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3})|:))|(([0-9a-f]{1,4}:){5}(((:[0-9a-f]{1,4}){1,2})|:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3})|:))|(([0-9a-f]{1,4}:){4}(((:[0-9a-f]{1,4}){1,3})|((:[0-9a-f]{1,4})?:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(([0-9a-f]{1,4}:){3}(((:[0-9a-f]{1,4}){1,4})|((:[0-9a-f]{1,4}){0,2}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(([0-9a-f]{1,4}:){2}(((:[0-9a-f]{1,4}){1,5})|((:[0-9a-f]{1,4}){0,3}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(([0-9a-f]{1,4}:){1}(((:[0-9a-f]{1,4}){1,6})|((:[0-9a-f]{1,4}){0,4}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(:(((:[0-9a-f]{1,4}){1,7})|((:[0-9a-f]{1,4}){0,5}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:)))$/i,
       regex,
+      // uuid: http://tools.ietf.org/html/rfc4122
       uuid: /^(?:urn:uuid:)?[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i,
+      // JSON-pointer: https://tools.ietf.org/html/rfc6901
+      // uri fragment: https://tools.ietf.org/html/rfc3986#appendix-A
       "json-pointer": /^(?:\/(?:[^~/]|~0|~1)*)*$/,
       "json-pointer-uri-fragment": /^#(?:\/(?:[a-z0-9_\-.!$&'()*+,;:=@]|%[0-9a-f]{2}|~0|~1)*)*$/i,
+      // relative JSON-pointer: http://tools.ietf.org/html/draft-luff-relative-json-pointer-00
       "relative-json-pointer": /^(?:0|[1-9][0-9]*)(?:#|(?:\/(?:[^~/]|~0|~1)*)*)$/,
+      // the following formats are used by the openapi specification: https://spec.openapis.org/oas/v3.0.0#data-types
+      // byte: https://github.com/miguelmota/is-base64
       byte,
+      // signed 32 bit integer
       int32: { type: "number", validate: validateInt32 },
+      // signed 64 bit integer
       int64: { type: "number", validate: validateInt64 },
+      // C-type float
       float: { type: "number", validate: validateNumber },
+      // C-type double
       double: { type: "number", validate: validateNumber },
+      // hint to the UI to hide input strings
       password: true,
+      // unchecked string payload
       binary: true
     };
     exports.fastFormats = {
@@ -6422,8 +6535,12 @@ var require_formats = __commonJS({
       "date-time": fmtDef(/^\d\d\d\d-[0-1]\d-[0-3]\dt(?:[0-2]\d:[0-5]\d:[0-5]\d|23:59:60)(?:\.\d+)?(?:z|[+-]\d\d(?::?\d\d)?)$/i, compareDateTime),
       "iso-time": fmtDef(/^(?:[0-2]\d:[0-5]\d:[0-5]\d|23:59:60)(?:\.\d+)?(?:z|[+-]\d\d(?::?\d\d)?)?$/i, compareIsoTime),
       "iso-date-time": fmtDef(/^\d\d\d\d-[0-1]\d-[0-3]\d[t\s](?:[0-2]\d:[0-5]\d:[0-5]\d|23:59:60)(?:\.\d+)?(?:z|[+-]\d\d(?::?\d\d)?)?$/i, compareIsoDateTime),
+      // uri: https://github.com/mafintosh/is-my-json-valid/blob/master/formats.js
       uri: /^(?:[a-z][a-z0-9+\-.]*:)(?:\/?\/)?[^\s]*$/i,
       "uri-reference": /^(?:(?:[a-z][a-z0-9+\-.]*:)?\/?\/)?(?:[^\\\s#][^\s#]*)?(?:#[^\\\s]*)?$/i,
+      // email (sources from jsen validator):
+      // http://stackoverflow.com/questions/201323/using-a-regular-expression-to-validate-an-email-address#answer-8829363
+      // http://www.w3.org/TR/html5/forms.html#valid-e-mail-address (search for 'wilful violation')
       email: /^[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$/i
     };
     exports.formatNames = Object.keys(exports.fullFormats);
@@ -6475,8 +6592,8 @@ var require_formats = __commonJS({
     function compareTime(s1, s2) {
       if (!(s1 && s2))
         return void 0;
-      const t1 = new Date("2020-01-01T" + s1).valueOf();
-      const t2 = new Date("2020-01-01T" + s2).valueOf();
+      const t1 = (/* @__PURE__ */ new Date("2020-01-01T" + s1)).valueOf();
+      const t2 = (/* @__PURE__ */ new Date("2020-01-01T" + s2)).valueOf();
       if (!(t1 && t2))
         return void 0;
       return t1 - t2;
@@ -6676,6 +6793,7 @@ var require_dist = __commonJS({
 var NEVER = Object.freeze({
   status: "aborted"
 });
+// @__NO_SIDE_EFFECTS__
 function $constructor(name, initializer3, params) {
   function init(inst, def) {
     var _a;
@@ -6854,6 +6972,7 @@ function defineLazy(object3, key, getter) {
     set(v) {
       Object.defineProperty(object3, key, {
         value: v
+        // configurable: true,
       });
     },
     configurable: true
@@ -7108,6 +7227,7 @@ function extend(schema, shape) {
       return _shape;
     },
     checks: []
+    // delete existing checks
   };
   return clone(schema, def);
 }
@@ -7121,6 +7241,7 @@ function merge(a, b) {
     },
     catchall: b._zod.def.catchall,
     checks: []
+    // delete existing checks
   });
 }
 function partial(Class2, schema, mask) {
@@ -7178,6 +7299,7 @@ function required(Class2, schema, mask) {
   return clone(schema, {
     ...schema._zod.def,
     shape,
+    // optional: [],
     checks: []
   });
 }
@@ -7268,6 +7390,7 @@ var initializer = (inst, def) => {
       return JSON.stringify(def, jsonStringifyReplacer, 2);
     },
     enumerable: true
+    // configurable: false,
   });
   Object.defineProperty(inst, "toString", {
     value: () => inst.message,
@@ -9095,8 +9218,11 @@ function handleRefineResult(result, payload, input, inst) {
       code: "custom",
       input,
       inst,
+      // incorporates params.error into issue reporting
       path: [...inst._zod.def.path ?? []],
+      // incorporates params.error into issue reporting
       continue: !inst._zod.def.abort
+      // params: inst._zod.def.params,
     };
     if (inst._zod.def.params)
       _iss.params = inst._zod.def.params;
@@ -9684,6 +9810,9 @@ function _array(Class2, element, params) {
   return new Class2({
     type: "array",
     element,
+    // get element() {
+    //   return element;
+    // },
     ...normalizeParams(params)
   });
 }
@@ -9821,20 +9950,25 @@ var initializer2 = (inst, issues) => {
   Object.defineProperties(inst, {
     format: {
       value: (mapper) => formatError(inst, mapper)
+      // enumerable: false,
     },
     flatten: {
       value: (mapper) => flattenError(inst, mapper)
+      // enumerable: false,
     },
     addIssue: {
       value: (issue2) => inst.issues.push(issue2)
+      // enumerable: false,
     },
     addIssues: {
       value: (issues2) => inst.issues.push(...issues2)
+      // enumerable: false,
     },
     isEmpty: {
       get() {
         return inst.issues.length === 0;
       }
+      // enumerable: false,
     }
   });
 };
@@ -9863,6 +9997,7 @@ var ZodType = /* @__PURE__ */ $constructor("ZodType", (inst, def) => {
           ...checks.map((ch) => typeof ch === "function" ? { _zod: { check: ch, def: { check: "custom" }, onattach: [] } } : ch)
         ]
       }
+      // { parent: true }
     );
   };
   inst.clone = (def2, params) => clone(inst, def2, params);
@@ -10405,6 +10540,7 @@ function pipe(in_, out) {
     type: "pipe",
     in: in_,
     out
+    // ...util.normalizeParams(params),
   });
 }
 var ZodReadonly = /* @__PURE__ */ $constructor("ZodReadonly", (inst, def) => {
@@ -10424,6 +10560,7 @@ var ZodCustom = /* @__PURE__ */ $constructor("ZodCustom", (inst, def) => {
 function check(fn) {
   const ch = new $ZodCheck({
     check: "custom"
+    // ...util.normalizeParams(params),
   });
   ch._zod.check = fn;
   return ch;
@@ -10470,7 +10607,14 @@ var AssertObjectSchema = custom((v) => v !== null && (typeof v === "object" || t
 var ProgressTokenSchema = union([string2(), number2().int()]);
 var CursorSchema = string2();
 var TaskCreationParamsSchema = looseObject({
+  /**
+   * Time in milliseconds to keep task results available after completion.
+   * If null, the task has unlimited lifetime until manually cleaned up.
+   */
   ttl: union([number2(), _null3()]).optional(),
+  /**
+   * Time in milliseconds to wait between task status requests.
+   */
   pollInterval: number2().optional()
 });
 var TaskMetadataSchema = object2({
@@ -10480,13 +10624,30 @@ var RelatedTaskMetadataSchema = object2({
   taskId: string2()
 });
 var RequestMetaSchema = looseObject({
+  /**
+   * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+   */
   progressToken: ProgressTokenSchema.optional(),
+  /**
+   * If specified, this request is related to the provided task.
+   */
   [RELATED_TASK_META_KEY]: RelatedTaskMetadataSchema.optional()
 });
 var BaseRequestParamsSchema = object2({
+  /**
+   * See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage.
+   */
   _meta: RequestMetaSchema.optional()
 });
 var TaskAugmentedRequestParamsSchema = BaseRequestParamsSchema.extend({
+  /**
+   * If specified, the caller is requesting task-augmented execution for this request.
+   * The request will return a CreateTaskResult immediately, and the actual result can be
+   * retrieved later via tasks/result.
+   *
+   * Task augmentation is subject to capability negotiation - receivers MUST declare support
+   * for task augmentation of specific request types in their capabilities.
+   */
   task: TaskMetadataSchema.optional()
 });
 var isTaskAugmentedRequestParams = (value) => TaskAugmentedRequestParamsSchema.safeParse(value).success;
@@ -10495,6 +10656,10 @@ var RequestSchema = object2({
   params: BaseRequestParamsSchema.loose().optional()
 });
 var NotificationsParamsSchema = object2({
+  /**
+   * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
+   * for notes on _meta usage.
+   */
   _meta: RequestMetaSchema.optional()
 });
 var NotificationSchema = object2({
@@ -10502,6 +10667,10 @@ var NotificationSchema = object2({
   params: NotificationsParamsSchema.loose().optional()
 });
 var ResultSchema = looseObject({
+  /**
+   * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
+   * for notes on _meta usage.
+   */
   _meta: RequestMetaSchema.optional()
 });
 var RequestIdSchema = union([string2(), number2().int()]);
@@ -10537,8 +10706,17 @@ var JSONRPCErrorResponseSchema = object2({
   jsonrpc: literal(JSONRPC_VERSION),
   id: RequestIdSchema.optional(),
   error: object2({
+    /**
+     * The error type that occurred.
+     */
     code: number2().int(),
+    /**
+     * A short description of the error. The message SHOULD be limited to a concise single sentence.
+     */
     message: string2(),
+    /**
+     * Additional information about the error. The value of this member is defined by the sender (e.g. detailed error information, nested errors etc.).
+     */
     data: unknown().optional()
   })
 }).strict();
@@ -10552,7 +10730,15 @@ var JSONRPCMessageSchema = union([
 var JSONRPCResponseSchema = union([JSONRPCResultResponseSchema, JSONRPCErrorResponseSchema]);
 var EmptyResultSchema = ResultSchema.strict();
 var CancelledNotificationParamsSchema = NotificationsParamsSchema.extend({
+  /**
+   * The ID of the request to cancel.
+   *
+   * This MUST correspond to the ID of a request previously issued in the same direction.
+   */
   requestId: RequestIdSchema.optional(),
+  /**
+   * An optional string describing the reason for the cancellation. This MAY be logged or presented to the user.
+   */
   reason: string2().optional()
 });
 var CancelledNotificationSchema = NotificationSchema.extend({
@@ -10560,23 +10746,72 @@ var CancelledNotificationSchema = NotificationSchema.extend({
   params: CancelledNotificationParamsSchema
 });
 var IconSchema = object2({
+  /**
+   * URL or data URI for the icon.
+   */
   src: string2(),
+  /**
+   * Optional MIME type for the icon.
+   */
   mimeType: string2().optional(),
+  /**
+   * Optional array of strings that specify sizes at which the icon can be used.
+   * Each string should be in WxH format (e.g., `"48x48"`, `"96x96"`) or `"any"` for scalable formats like SVG.
+   *
+   * If not provided, the client should assume that the icon can be used at any size.
+   */
   sizes: array(string2()).optional(),
+  /**
+   * Optional specifier for the theme this icon is designed for. `light` indicates
+   * the icon is designed to be used with a light background, and `dark` indicates
+   * the icon is designed to be used with a dark background.
+   *
+   * If not provided, the client should assume the icon can be used with any theme.
+   */
   theme: _enum(["light", "dark"]).optional()
 });
 var IconsSchema = object2({
+  /**
+   * Optional set of sized icons that the client can display in a user interface.
+   *
+   * Clients that support rendering icons MUST support at least the following MIME types:
+   * - `image/png` - PNG images (safe, universal compatibility)
+   * - `image/jpeg` (and `image/jpg`) - JPEG images (safe, universal compatibility)
+   *
+   * Clients that support rendering icons SHOULD also support:
+   * - `image/svg+xml` - SVG images (scalable but requires security precautions)
+   * - `image/webp` - WebP images (modern, efficient format)
+   */
   icons: array(IconSchema).optional()
 });
 var BaseMetadataSchema = object2({
+  /** Intended for programmatic or logical use, but used as a display name in past specs or fallback */
   name: string2(),
+  /**
+   * Intended for UI and end-user contexts — optimized to be human-readable and easily understood,
+   * even by those unfamiliar with domain-specific terminology.
+   *
+   * If not provided, the name should be used for display (except for Tool,
+   * where `annotations.title` should be given precedence over using `name`,
+   * if present).
+   */
   title: string2().optional()
 });
 var ImplementationSchema = BaseMetadataSchema.extend({
   ...BaseMetadataSchema.shape,
   ...IconsSchema.shape,
   version: string2(),
+  /**
+   * An optional URL of the website for this implementation.
+   */
   websiteUrl: string2().optional(),
+  /**
+   * An optional human-readable description of what this implementation does.
+   *
+   * This can be used by clients or servers to provide context about their purpose
+   * and capabilities. For example, a server might describe the types of resources
+   * or tools it provides, while a client might describe its intended use case.
+   */
   description: string2().optional()
 });
 var FormElicitationCapabilitySchema = intersection(object2({
@@ -10594,39 +10829,94 @@ var ElicitationCapabilitySchema = preprocess((value) => {
   url: AssertObjectSchema.optional()
 }), record(string2(), unknown()).optional()));
 var ClientTasksCapabilitySchema = looseObject({
+  /**
+   * Present if the client supports listing tasks.
+   */
   list: AssertObjectSchema.optional(),
+  /**
+   * Present if the client supports cancelling tasks.
+   */
   cancel: AssertObjectSchema.optional(),
+  /**
+   * Capabilities for task creation on specific request types.
+   */
   requests: looseObject({
+    /**
+     * Task support for sampling requests.
+     */
     sampling: looseObject({
       createMessage: AssertObjectSchema.optional()
     }).optional(),
+    /**
+     * Task support for elicitation requests.
+     */
     elicitation: looseObject({
       create: AssertObjectSchema.optional()
     }).optional()
   }).optional()
 });
 var ServerTasksCapabilitySchema = looseObject({
+  /**
+   * Present if the server supports listing tasks.
+   */
   list: AssertObjectSchema.optional(),
+  /**
+   * Present if the server supports cancelling tasks.
+   */
   cancel: AssertObjectSchema.optional(),
+  /**
+   * Capabilities for task creation on specific request types.
+   */
   requests: looseObject({
+    /**
+     * Task support for tool requests.
+     */
     tools: looseObject({
       call: AssertObjectSchema.optional()
     }).optional()
   }).optional()
 });
 var ClientCapabilitiesSchema = object2({
+  /**
+   * Experimental, non-standard capabilities that the client supports.
+   */
   experimental: record(string2(), AssertObjectSchema).optional(),
+  /**
+   * Present if the client supports sampling from an LLM.
+   */
   sampling: object2({
+    /**
+     * Present if the client supports context inclusion via includeContext parameter.
+     * If not declared, servers SHOULD only use `includeContext: "none"` (or omit it).
+     */
     context: AssertObjectSchema.optional(),
+    /**
+     * Present if the client supports tool use via tools and toolChoice parameters.
+     */
     tools: AssertObjectSchema.optional()
   }).optional(),
+  /**
+   * Present if the client supports eliciting user input.
+   */
   elicitation: ElicitationCapabilitySchema.optional(),
+  /**
+   * Present if the client supports listing roots.
+   */
   roots: object2({
+    /**
+     * Whether the client supports issuing notifications for changes to the roots list.
+     */
     listChanged: boolean2().optional()
   }).optional(),
+  /**
+   * Present if the client supports task creation.
+   */
   tasks: ClientTasksCapabilitySchema.optional()
 });
 var InitializeRequestParamsSchema = BaseRequestParamsSchema.extend({
+  /**
+   * The latest version of the Model Context Protocol that the client supports. The client MAY decide to support older versions as well.
+   */
   protocolVersion: string2(),
   capabilities: ClientCapabilitiesSchema,
   clientInfo: ImplementationSchema
@@ -10636,25 +10926,66 @@ var InitializeRequestSchema = RequestSchema.extend({
   params: InitializeRequestParamsSchema
 });
 var ServerCapabilitiesSchema = object2({
+  /**
+   * Experimental, non-standard capabilities that the server supports.
+   */
   experimental: record(string2(), AssertObjectSchema).optional(),
+  /**
+   * Present if the server supports sending log messages to the client.
+   */
   logging: AssertObjectSchema.optional(),
+  /**
+   * Present if the server supports sending completions to the client.
+   */
   completions: AssertObjectSchema.optional(),
+  /**
+   * Present if the server offers any prompt templates.
+   */
   prompts: object2({
+    /**
+     * Whether this server supports issuing notifications for changes to the prompt list.
+     */
     listChanged: boolean2().optional()
   }).optional(),
+  /**
+   * Present if the server offers any resources to read.
+   */
   resources: object2({
+    /**
+     * Whether this server supports clients subscribing to resource updates.
+     */
     subscribe: boolean2().optional(),
+    /**
+     * Whether this server supports issuing notifications for changes to the resource list.
+     */
     listChanged: boolean2().optional()
   }).optional(),
+  /**
+   * Present if the server offers any tools to call.
+   */
   tools: object2({
+    /**
+     * Whether this server supports issuing notifications for changes to the tool list.
+     */
     listChanged: boolean2().optional()
   }).optional(),
+  /**
+   * Present if the server supports task creation.
+   */
   tasks: ServerTasksCapabilitySchema.optional()
 });
 var InitializeResultSchema = ResultSchema.extend({
+  /**
+   * The version of the Model Context Protocol that the server wants to use. This may not match the version that the client requested. If the client cannot support this version, it MUST disconnect.
+   */
   protocolVersion: string2(),
   capabilities: ServerCapabilitiesSchema,
   serverInfo: ImplementationSchema,
+  /**
+   * Instructions describing how to use the server and its features.
+   *
+   * This can be used by clients to improve the LLM's understanding of available tools, resources, etc. It can be thought of like a "hint" to the model. For example, this information MAY be added to the system prompt.
+   */
   instructions: string2().optional()
 });
 var InitializedNotificationSchema = NotificationSchema.extend({
@@ -10666,13 +10997,25 @@ var PingRequestSchema = RequestSchema.extend({
   params: BaseRequestParamsSchema.optional()
 });
 var ProgressSchema = object2({
+  /**
+   * The progress thus far. This should increase every time progress is made, even if the total is unknown.
+   */
   progress: number2(),
+  /**
+   * Total number of items to process (or total progress required), if known.
+   */
   total: optional(number2()),
+  /**
+   * An optional message describing the current progress.
+   */
   message: optional(string2())
 });
 var ProgressNotificationParamsSchema = object2({
   ...NotificationsParamsSchema.shape,
   ...ProgressSchema.shape,
+  /**
+   * The progress token which was given in the initial request, used to associate this notification with the request that is proceeding.
+   */
   progressToken: ProgressTokenSchema
 });
 var ProgressNotificationSchema = NotificationSchema.extend({
@@ -10680,22 +11023,43 @@ var ProgressNotificationSchema = NotificationSchema.extend({
   params: ProgressNotificationParamsSchema
 });
 var PaginatedRequestParamsSchema = BaseRequestParamsSchema.extend({
+  /**
+   * An opaque token representing the current pagination position.
+   * If provided, the server should return results starting after this cursor.
+   */
   cursor: CursorSchema.optional()
 });
 var PaginatedRequestSchema = RequestSchema.extend({
   params: PaginatedRequestParamsSchema.optional()
 });
 var PaginatedResultSchema = ResultSchema.extend({
+  /**
+   * An opaque token representing the pagination position after the last returned result.
+   * If present, there may be more results available.
+   */
   nextCursor: CursorSchema.optional()
 });
 var TaskStatusSchema = _enum(["working", "input_required", "completed", "failed", "cancelled"]);
 var TaskSchema = object2({
   taskId: string2(),
   status: TaskStatusSchema,
+  /**
+   * Time in milliseconds to keep task results available after completion.
+   * If null, the task has unlimited lifetime until manually cleaned up.
+   */
   ttl: union([number2(), _null3()]),
+  /**
+   * ISO 8601 timestamp when the task was created.
+   */
   createdAt: string2(),
+  /**
+   * ISO 8601 timestamp when the task was last updated.
+   */
   lastUpdatedAt: string2(),
   pollInterval: optional(number2()),
+  /**
+   * Optional diagnostic message for failed tasks or other status information.
+   */
   statusMessage: optional(string2())
 });
 var CreateTaskResultSchema = ResultSchema.extend({
@@ -10734,11 +11098,24 @@ var CancelTaskRequestSchema = RequestSchema.extend({
 });
 var CancelTaskResultSchema = ResultSchema.merge(TaskSchema);
 var ResourceContentsSchema = object2({
+  /**
+   * The URI of this resource.
+   */
   uri: string2(),
+  /**
+   * The MIME type of this resource, if known.
+   */
   mimeType: optional(string2()),
+  /**
+   * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
+   * for notes on _meta usage.
+   */
   _meta: record(string2(), unknown()).optional()
 });
 var TextResourceContentsSchema = ResourceContentsSchema.extend({
+  /**
+   * The text of the item. This must only be set if the item can actually be represented as text (not binary data).
+   */
   text: string2()
 });
 var Base64Schema = string2().refine((val) => {
@@ -10750,30 +11127,78 @@ var Base64Schema = string2().refine((val) => {
   }
 }, { message: "Invalid Base64 string" });
 var BlobResourceContentsSchema = ResourceContentsSchema.extend({
+  /**
+   * A base64-encoded string representing the binary data of the item.
+   */
   blob: Base64Schema
 });
 var RoleSchema = _enum(["user", "assistant"]);
 var AnnotationsSchema = object2({
+  /**
+   * Intended audience(s) for the resource.
+   */
   audience: array(RoleSchema).optional(),
+  /**
+   * Importance hint for the resource, from 0 (least) to 1 (most).
+   */
   priority: number2().min(0).max(1).optional(),
+  /**
+   * ISO 8601 timestamp for the most recent modification.
+   */
   lastModified: iso_exports.datetime({ offset: true }).optional()
 });
 var ResourceSchema = object2({
   ...BaseMetadataSchema.shape,
   ...IconsSchema.shape,
+  /**
+   * The URI of this resource.
+   */
   uri: string2(),
+  /**
+   * A description of what this resource represents.
+   *
+   * This can be used by clients to improve the LLM's understanding of available resources. It can be thought of like a "hint" to the model.
+   */
   description: optional(string2()),
+  /**
+   * The MIME type of this resource, if known.
+   */
   mimeType: optional(string2()),
+  /**
+   * Optional annotations for the client.
+   */
   annotations: AnnotationsSchema.optional(),
+  /**
+   * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
+   * for notes on _meta usage.
+   */
   _meta: optional(looseObject({}))
 });
 var ResourceTemplateSchema = object2({
   ...BaseMetadataSchema.shape,
   ...IconsSchema.shape,
+  /**
+   * A URI template (according to RFC 6570) that can be used to construct resource URIs.
+   */
   uriTemplate: string2(),
+  /**
+   * A description of what this template is for.
+   *
+   * This can be used by clients to improve the LLM's understanding of available resources. It can be thought of like a "hint" to the model.
+   */
   description: optional(string2()),
+  /**
+   * The MIME type for all resources that match this template. This should only be included if all resources matching this template have the same type.
+   */
   mimeType: optional(string2()),
+  /**
+   * Optional annotations for the client.
+   */
   annotations: AnnotationsSchema.optional(),
+  /**
+   * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
+   * for notes on _meta usage.
+   */
   _meta: optional(looseObject({}))
 });
 var ListResourcesRequestSchema = PaginatedRequestSchema.extend({
@@ -10789,6 +11214,11 @@ var ListResourceTemplatesResultSchema = PaginatedResultSchema.extend({
   resourceTemplates: array(ResourceTemplateSchema)
 });
 var ResourceRequestParamsSchema = BaseRequestParamsSchema.extend({
+  /**
+   * The URI of the resource to read. The URI can use any protocol; it is up to the server how to interpret it.
+   *
+   * @format uri
+   */
   uri: string2()
 });
 var ReadResourceRequestParamsSchema = ResourceRequestParamsSchema;
@@ -10814,6 +11244,9 @@ var UnsubscribeRequestSchema = RequestSchema.extend({
   params: UnsubscribeRequestParamsSchema
 });
 var ResourceUpdatedNotificationParamsSchema = NotificationsParamsSchema.extend({
+  /**
+   * The URI of the resource that has been updated. This might be a sub-resource of the one that the client actually subscribed to.
+   */
   uri: string2()
 });
 var ResourceUpdatedNotificationSchema = NotificationSchema.extend({
@@ -10821,15 +11254,34 @@ var ResourceUpdatedNotificationSchema = NotificationSchema.extend({
   params: ResourceUpdatedNotificationParamsSchema
 });
 var PromptArgumentSchema = object2({
+  /**
+   * The name of the argument.
+   */
   name: string2(),
+  /**
+   * A human-readable description of the argument.
+   */
   description: optional(string2()),
+  /**
+   * Whether this argument must be provided.
+   */
   required: optional(boolean2())
 });
 var PromptSchema = object2({
   ...BaseMetadataSchema.shape,
   ...IconsSchema.shape,
+  /**
+   * An optional description of what this prompt provides
+   */
   description: optional(string2()),
+  /**
+   * A list of arguments to use for templating the prompt.
+   */
   arguments: optional(array(PromptArgumentSchema)),
+  /**
+   * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
+   * for notes on _meta usage.
+   */
   _meta: optional(looseObject({}))
 });
 var ListPromptsRequestSchema = PaginatedRequestSchema.extend({
@@ -10839,7 +11291,13 @@ var ListPromptsResultSchema = PaginatedResultSchema.extend({
   prompts: array(PromptSchema)
 });
 var GetPromptRequestParamsSchema = BaseRequestParamsSchema.extend({
+  /**
+   * The name of the prompt or prompt template.
+   */
   name: string2(),
+  /**
+   * Arguments to use for templating the prompt.
+   */
   arguments: record(string2(), string2()).optional()
 });
 var GetPromptRequestSchema = RequestSchema.extend({
@@ -10848,35 +11306,94 @@ var GetPromptRequestSchema = RequestSchema.extend({
 });
 var TextContentSchema = object2({
   type: literal("text"),
+  /**
+   * The text content of the message.
+   */
   text: string2(),
+  /**
+   * Optional annotations for the client.
+   */
   annotations: AnnotationsSchema.optional(),
+  /**
+   * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
+   * for notes on _meta usage.
+   */
   _meta: record(string2(), unknown()).optional()
 });
 var ImageContentSchema = object2({
   type: literal("image"),
+  /**
+   * The base64-encoded image data.
+   */
   data: Base64Schema,
+  /**
+   * The MIME type of the image. Different providers may support different image types.
+   */
   mimeType: string2(),
+  /**
+   * Optional annotations for the client.
+   */
   annotations: AnnotationsSchema.optional(),
+  /**
+   * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
+   * for notes on _meta usage.
+   */
   _meta: record(string2(), unknown()).optional()
 });
 var AudioContentSchema = object2({
   type: literal("audio"),
+  /**
+   * The base64-encoded audio data.
+   */
   data: Base64Schema,
+  /**
+   * The MIME type of the audio. Different providers may support different audio types.
+   */
   mimeType: string2(),
+  /**
+   * Optional annotations for the client.
+   */
   annotations: AnnotationsSchema.optional(),
+  /**
+   * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
+   * for notes on _meta usage.
+   */
   _meta: record(string2(), unknown()).optional()
 });
 var ToolUseContentSchema = object2({
   type: literal("tool_use"),
+  /**
+   * The name of the tool to invoke.
+   * Must match a tool name from the request's tools array.
+   */
   name: string2(),
+  /**
+   * Unique identifier for this tool call.
+   * Used to correlate with ToolResultContent in subsequent messages.
+   */
   id: string2(),
+  /**
+   * Arguments to pass to the tool.
+   * Must conform to the tool's inputSchema.
+   */
   input: record(string2(), unknown()),
+  /**
+   * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
+   * for notes on _meta usage.
+   */
   _meta: record(string2(), unknown()).optional()
 });
 var EmbeddedResourceSchema = object2({
   type: literal("resource"),
   resource: union([TextResourceContentsSchema, BlobResourceContentsSchema]),
+  /**
+   * Optional annotations for the client.
+   */
   annotations: AnnotationsSchema.optional(),
+  /**
+   * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
+   * for notes on _meta usage.
+   */
   _meta: record(string2(), unknown()).optional()
 });
 var ResourceLinkSchema = ResourceSchema.extend({
@@ -10894,6 +11411,9 @@ var PromptMessageSchema = object2({
   content: ContentBlockSchema
 });
 var GetPromptResultSchema = ResultSchema.extend({
+  /**
+   * An optional description for the prompt.
+   */
   description: string2().optional(),
   messages: array(PromptMessageSchema)
 });
@@ -10902,31 +11422,93 @@ var PromptListChangedNotificationSchema = NotificationSchema.extend({
   params: NotificationsParamsSchema.optional()
 });
 var ToolAnnotationsSchema = object2({
+  /**
+   * A human-readable title for the tool.
+   */
   title: string2().optional(),
+  /**
+   * If true, the tool does not modify its environment.
+   *
+   * Default: false
+   */
   readOnlyHint: boolean2().optional(),
+  /**
+   * If true, the tool may perform destructive updates to its environment.
+   * If false, the tool performs only additive updates.
+   *
+   * (This property is meaningful only when `readOnlyHint == false`)
+   *
+   * Default: true
+   */
   destructiveHint: boolean2().optional(),
+  /**
+   * If true, calling the tool repeatedly with the same arguments
+   * will have no additional effect on the its environment.
+   *
+   * (This property is meaningful only when `readOnlyHint == false`)
+   *
+   * Default: false
+   */
   idempotentHint: boolean2().optional(),
+  /**
+   * If true, this tool may interact with an "open world" of external
+   * entities. If false, the tool's domain of interaction is closed.
+   * For example, the world of a web search tool is open, whereas that
+   * of a memory tool is not.
+   *
+   * Default: true
+   */
   openWorldHint: boolean2().optional()
 });
 var ToolExecutionSchema = object2({
+  /**
+   * Indicates the tool's preference for task-augmented execution.
+   * - "required": Clients MUST invoke the tool as a task
+   * - "optional": Clients MAY invoke the tool as a task or normal request
+   * - "forbidden": Clients MUST NOT attempt to invoke the tool as a task
+   *
+   * If not present, defaults to "forbidden".
+   */
   taskSupport: _enum(["required", "optional", "forbidden"]).optional()
 });
 var ToolSchema = object2({
   ...BaseMetadataSchema.shape,
   ...IconsSchema.shape,
+  /**
+   * A human-readable description of the tool.
+   */
   description: string2().optional(),
+  /**
+   * A JSON Schema 2020-12 object defining the expected parameters for the tool.
+   * Must have type: 'object' at the root level per MCP spec.
+   */
   inputSchema: object2({
     type: literal("object"),
     properties: record(string2(), AssertObjectSchema).optional(),
     required: array(string2()).optional()
   }).catchall(unknown()),
+  /**
+   * An optional JSON Schema 2020-12 object defining the structure of the tool's output
+   * returned in the structuredContent field of a CallToolResult.
+   * Must have type: 'object' at the root level per MCP spec.
+   */
   outputSchema: object2({
     type: literal("object"),
     properties: record(string2(), AssertObjectSchema).optional(),
     required: array(string2()).optional()
   }).catchall(unknown()).optional(),
+  /**
+   * Optional additional tool information.
+   */
   annotations: ToolAnnotationsSchema.optional(),
+  /**
+   * Execution-related properties for this tool.
+   */
   execution: ToolExecutionSchema.optional(),
+  /**
+   * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
+   * for notes on _meta usage.
+   */
   _meta: record(string2(), unknown()).optional()
 });
 var ListToolsRequestSchema = PaginatedRequestSchema.extend({
@@ -10936,15 +11518,46 @@ var ListToolsResultSchema = PaginatedResultSchema.extend({
   tools: array(ToolSchema)
 });
 var CallToolResultSchema = ResultSchema.extend({
+  /**
+   * A list of content objects that represent the result of the tool call.
+   *
+   * If the Tool does not define an outputSchema, this field MUST be present in the result.
+   * For backwards compatibility, this field is always present, but it may be empty.
+   */
   content: array(ContentBlockSchema).default([]),
+  /**
+   * An object containing structured tool output.
+   *
+   * If the Tool defines an outputSchema, this field MUST be present in the result, and contain a JSON object that matches the schema.
+   */
   structuredContent: record(string2(), unknown()).optional(),
+  /**
+   * Whether the tool call ended in an error.
+   *
+   * If not set, this is assumed to be false (the call was successful).
+   *
+   * Any errors that originate from the tool SHOULD be reported inside the result
+   * object, with `isError` set to true, _not_ as an MCP protocol-level error
+   * response. Otherwise, the LLM would not be able to see that an error occurred
+   * and self-correct.
+   *
+   * However, any errors in _finding_ the tool, an error indicating that the
+   * server does not support tool calls, or any other exceptional conditions,
+   * should be reported as an MCP error response.
+   */
   isError: boolean2().optional()
 });
 var CompatibilityCallToolResultSchema = CallToolResultSchema.or(ResultSchema.extend({
   toolResult: unknown()
 }));
 var CallToolRequestParamsSchema = TaskAugmentedRequestParamsSchema.extend({
+  /**
+   * The name of the tool to call.
+   */
   name: string2(),
+  /**
+   * Arguments to pass to the tool.
+   */
   arguments: record(string2(), unknown()).optional()
 });
 var CallToolRequestSchema = RequestSchema.extend({
@@ -10956,11 +11569,30 @@ var ToolListChangedNotificationSchema = NotificationSchema.extend({
   params: NotificationsParamsSchema.optional()
 });
 var ListChangedOptionsBaseSchema = object2({
+  /**
+   * If true, the list will be refreshed automatically when a list changed notification is received.
+   * The callback will be called with the updated list.
+   *
+   * If false, the callback will be called with null items, allowing manual refresh.
+   *
+   * @default true
+   */
   autoRefresh: boolean2().default(true),
+  /**
+   * Debounce time in milliseconds for list changed notification processing.
+   *
+   * Multiple notifications received within this timeframe will only trigger one refresh.
+   * Set to 0 to disable debouncing.
+   *
+   * @default 300
+   */
   debounceMs: number2().int().nonnegative().default(300)
 });
 var LoggingLevelSchema = _enum(["debug", "info", "notice", "warning", "error", "critical", "alert", "emergency"]);
 var SetLevelRequestParamsSchema = BaseRequestParamsSchema.extend({
+  /**
+   * The level of logging that the client wants to receive from the server. The server should send all logs at this level and higher (i.e., more severe) to the client as notifications/logging/message.
+   */
   level: LoggingLevelSchema
 });
 var SetLevelRequestSchema = RequestSchema.extend({
@@ -10968,8 +11600,17 @@ var SetLevelRequestSchema = RequestSchema.extend({
   params: SetLevelRequestParamsSchema
 });
 var LoggingMessageNotificationParamsSchema = NotificationsParamsSchema.extend({
+  /**
+   * The severity of this log message.
+   */
   level: LoggingLevelSchema,
+  /**
+   * An optional name of the logger issuing this message.
+   */
   logger: string2().optional(),
+  /**
+   * The data to be logged, such as a string message or an object. Any JSON serializable type is allowed here.
+   */
   data: unknown()
 });
 var LoggingMessageNotificationSchema = NotificationSchema.extend({
@@ -10977,15 +11618,36 @@ var LoggingMessageNotificationSchema = NotificationSchema.extend({
   params: LoggingMessageNotificationParamsSchema
 });
 var ModelHintSchema = object2({
+  /**
+   * A hint for a model name.
+   */
   name: string2().optional()
 });
 var ModelPreferencesSchema = object2({
+  /**
+   * Optional hints to use for model selection.
+   */
   hints: array(ModelHintSchema).optional(),
+  /**
+   * How much to prioritize cost when selecting a model.
+   */
   costPriority: number2().min(0).max(1).optional(),
+  /**
+   * How much to prioritize sampling speed (latency) when selecting a model.
+   */
   speedPriority: number2().min(0).max(1).optional(),
+  /**
+   * How much to prioritize intelligence and capabilities when selecting a model.
+   */
   intelligencePriority: number2().min(0).max(1).optional()
 });
 var ToolChoiceSchema = object2({
+  /**
+   * Controls when tools are used:
+   * - "auto": Model decides whether to use tools (default)
+   * - "required": Model MUST use at least one tool before completing
+   * - "none": Model MUST NOT use any tools
+   */
   mode: _enum(["auto", "required", "none"]).optional()
 });
 var ToolResultContentSchema = object2({
@@ -10994,6 +11656,10 @@ var ToolResultContentSchema = object2({
   content: array(ContentBlockSchema).default([]),
   structuredContent: object2({}).loose().optional(),
   isError: boolean2().optional(),
+  /**
+   * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
+   * for notes on _meta usage.
+   */
   _meta: record(string2(), unknown()).optional()
 });
 var SamplingContentSchema = discriminatedUnion("type", [TextContentSchema, ImageContentSchema, AudioContentSchema]);
@@ -11007,18 +11673,52 @@ var SamplingMessageContentBlockSchema = discriminatedUnion("type", [
 var SamplingMessageSchema = object2({
   role: RoleSchema,
   content: union([SamplingMessageContentBlockSchema, array(SamplingMessageContentBlockSchema)]),
+  /**
+   * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
+   * for notes on _meta usage.
+   */
   _meta: record(string2(), unknown()).optional()
 });
 var CreateMessageRequestParamsSchema = TaskAugmentedRequestParamsSchema.extend({
   messages: array(SamplingMessageSchema),
+  /**
+   * The server's preferences for which model to select. The client MAY modify or omit this request.
+   */
   modelPreferences: ModelPreferencesSchema.optional(),
+  /**
+   * An optional system prompt the server wants to use for sampling. The client MAY modify or omit this prompt.
+   */
   systemPrompt: string2().optional(),
+  /**
+   * A request to include context from one or more MCP servers (including the caller), to be attached to the prompt.
+   * The client MAY ignore this request.
+   *
+   * Default is "none". Values "thisServer" and "allServers" are soft-deprecated. Servers SHOULD only use these values if the client
+   * declares ClientCapabilities.sampling.context. These values may be removed in future spec releases.
+   */
   includeContext: _enum(["none", "thisServer", "allServers"]).optional(),
   temperature: number2().optional(),
+  /**
+   * The requested maximum number of tokens to sample (to prevent runaway completions).
+   *
+   * The client MAY choose to sample fewer tokens than the requested maximum.
+   */
   maxTokens: number2().int(),
   stopSequences: array(string2()).optional(),
+  /**
+   * Optional metadata to pass through to the LLM provider. The format of this metadata is provider-specific.
+   */
   metadata: AssertObjectSchema.optional(),
+  /**
+   * Tools that the model may use during generation.
+   * The client MUST return an error if this field is provided but ClientCapabilities.sampling.tools is not declared.
+   */
   tools: array(ToolSchema).optional(),
+  /**
+   * Controls how the model uses tools.
+   * The client MUST return an error if this field is provided but ClientCapabilities.sampling.tools is not declared.
+   * Default is `{ mode: "auto" }`.
+   */
   toolChoice: ToolChoiceSchema.optional()
 });
 var CreateMessageRequestSchema = RequestSchema.extend({
@@ -11026,15 +11726,48 @@ var CreateMessageRequestSchema = RequestSchema.extend({
   params: CreateMessageRequestParamsSchema
 });
 var CreateMessageResultSchema = ResultSchema.extend({
+  /**
+   * The name of the model that generated the message.
+   */
   model: string2(),
+  /**
+   * The reason why sampling stopped, if known.
+   *
+   * Standard values:
+   * - "endTurn": Natural end of the assistant's turn
+   * - "stopSequence": A stop sequence was encountered
+   * - "maxTokens": Maximum token limit was reached
+   *
+   * This field is an open string to allow for provider-specific stop reasons.
+   */
   stopReason: optional(_enum(["endTurn", "stopSequence", "maxTokens"]).or(string2())),
   role: RoleSchema,
+  /**
+   * Response content. Single content block (text, image, or audio).
+   */
   content: SamplingContentSchema
 });
 var CreateMessageResultWithToolsSchema = ResultSchema.extend({
+  /**
+   * The name of the model that generated the message.
+   */
   model: string2(),
+  /**
+   * The reason why sampling stopped, if known.
+   *
+   * Standard values:
+   * - "endTurn": Natural end of the assistant's turn
+   * - "stopSequence": A stop sequence was encountered
+   * - "maxTokens": Maximum token limit was reached
+   * - "toolUse": The model wants to use one or more tools
+   *
+   * This field is an open string to allow for provider-specific stop reasons.
+   */
   stopReason: optional(_enum(["endTurn", "stopSequence", "maxTokens", "toolUse"]).or(string2())),
   role: RoleSchema,
+  /**
+   * Response content. May be a single block or array. May include ToolUseContent if stopReason is "toolUse".
+   */
   content: union([SamplingMessageContentBlockSchema, array(SamplingMessageContentBlockSchema)])
 });
 var BooleanSchemaSchema = object2({
@@ -11116,8 +11849,20 @@ var MultiSelectEnumSchemaSchema = union([UntitledMultiSelectEnumSchemaSchema, Ti
 var EnumSchemaSchema = union([LegacyTitledEnumSchemaSchema, SingleSelectEnumSchemaSchema, MultiSelectEnumSchemaSchema]);
 var PrimitiveSchemaDefinitionSchema = union([EnumSchemaSchema, BooleanSchemaSchema, StringSchemaSchema, NumberSchemaSchema]);
 var ElicitRequestFormParamsSchema = TaskAugmentedRequestParamsSchema.extend({
+  /**
+   * The elicitation mode.
+   *
+   * Optional for backward compatibility. Clients MUST treat missing mode as "form".
+   */
   mode: literal("form").optional(),
+  /**
+   * The message to present to the user describing what information is being requested.
+   */
   message: string2(),
+  /**
+   * A restricted subset of JSON Schema.
+   * Only top-level properties are allowed, without nesting.
+   */
   requestedSchema: object2({
     type: literal("object"),
     properties: record(string2(), PrimitiveSchemaDefinitionSchema),
@@ -11125,9 +11870,22 @@ var ElicitRequestFormParamsSchema = TaskAugmentedRequestParamsSchema.extend({
   })
 });
 var ElicitRequestURLParamsSchema = TaskAugmentedRequestParamsSchema.extend({
+  /**
+   * The elicitation mode.
+   */
   mode: literal("url"),
+  /**
+   * The message to present to the user explaining why the interaction is needed.
+   */
   message: string2(),
+  /**
+   * The ID of the elicitation, which must be unique within the context of the server.
+   * The client MUST treat this ID as an opaque value.
+   */
   elicitationId: string2(),
+  /**
+   * The URL that the user should navigate to.
+   */
   url: string2().url()
 });
 var ElicitRequestParamsSchema = union([ElicitRequestFormParamsSchema, ElicitRequestURLParamsSchema]);
@@ -11136,6 +11894,9 @@ var ElicitRequestSchema = RequestSchema.extend({
   params: ElicitRequestParamsSchema
 });
 var ElicitationCompleteNotificationParamsSchema = NotificationsParamsSchema.extend({
+  /**
+   * The ID of the elicitation that completed.
+   */
   elicitationId: string2()
 });
 var ElicitationCompleteNotificationSchema = NotificationSchema.extend({
@@ -11143,24 +11904,54 @@ var ElicitationCompleteNotificationSchema = NotificationSchema.extend({
   params: ElicitationCompleteNotificationParamsSchema
 });
 var ElicitResultSchema = ResultSchema.extend({
+  /**
+   * The user action in response to the elicitation.
+   * - "accept": User submitted the form/confirmed the action
+   * - "decline": User explicitly decline the action
+   * - "cancel": User dismissed without making an explicit choice
+   */
   action: _enum(["accept", "decline", "cancel"]),
+  /**
+   * The submitted form data, only present when action is "accept".
+   * Contains values matching the requested schema.
+   * Per MCP spec, content is "typically omitted" for decline/cancel actions.
+   * We normalize null to undefined for leniency while maintaining type compatibility.
+   */
   content: preprocess((val) => val === null ? void 0 : val, record(string2(), union([string2(), number2(), boolean2(), array(string2())])).optional())
 });
 var ResourceTemplateReferenceSchema = object2({
   type: literal("ref/resource"),
+  /**
+   * The URI or URI template of the resource.
+   */
   uri: string2()
 });
 var PromptReferenceSchema = object2({
   type: literal("ref/prompt"),
+  /**
+   * The name of the prompt or prompt template
+   */
   name: string2()
 });
 var CompleteRequestParamsSchema = BaseRequestParamsSchema.extend({
   ref: union([PromptReferenceSchema, ResourceTemplateReferenceSchema]),
+  /**
+   * The argument's information
+   */
   argument: object2({
+    /**
+     * The name of the argument
+     */
     name: string2(),
+    /**
+     * The value of the argument to use for completion matching.
+     */
     value: string2()
   }),
   context: object2({
+    /**
+     * Previously-resolved variables in a URI template or prompt.
+     */
     arguments: record(string2(), string2()).optional()
   }).optional()
 });
@@ -11170,14 +11961,33 @@ var CompleteRequestSchema = RequestSchema.extend({
 });
 var CompleteResultSchema = ResultSchema.extend({
   completion: looseObject({
+    /**
+     * An array of completion values. Must not exceed 100 items.
+     */
     values: array(string2()).max(100),
+    /**
+     * The total number of completion options available. This can exceed the number of values actually sent in the response.
+     */
     total: optional(number2().int()),
+    /**
+     * Indicates whether there are additional completion options beyond those provided in the current response, even if the exact total is unknown.
+     */
     hasMore: optional(boolean2())
   })
 });
 var RootSchema = object2({
+  /**
+   * The URI identifying the root. This *must* start with file:// for now.
+   */
   uri: string2().startsWith("file://"),
+  /**
+   * An optional name for the root.
+   */
   name: string2().optional(),
+  /**
+   * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
+   * for notes on _meta usage.
+   */
   _meta: record(string2(), unknown()).optional()
 });
 var ListRootsRequestSchema = RequestSchema.extend({
@@ -11263,13 +12073,16 @@ var ServerResultSchema = union([
   ListTasksResultSchema,
   CreateTaskResultSchema
 ]);
-var McpError = class extends Error {
+var McpError = class _McpError extends Error {
   constructor(code, message, data) {
     super(`MCP error ${code}: ${message}`);
     this.code = code;
     this.data = data;
     this.name = "McpError";
   }
+  /**
+   * Factory method to create the appropriate error type based on the error code and data
+   */
   static fromError(code, message, data) {
     if (code === ErrorCode.UrlElicitationRequired && data) {
       const errorData = data;
@@ -11277,7 +12090,7 @@ var McpError = class extends Error {
         return new UrlElicitationRequiredError(errorData.elicitations, message);
       }
     }
-    return new McpError(code, message, data);
+    return new _McpError(code, message, data);
   }
 };
 var UrlElicitationRequiredError = class extends McpError {
@@ -11347,6 +12160,7 @@ var Protocol = class {
     });
     this.setRequestHandler(
       PingRequestSchema,
+      // Automatic pong by default.
       (_request) => ({})
     );
     this._taskStore = _options == null ? void 0 : _options.taskStore;
@@ -11496,6 +12310,11 @@ var Protocol = class {
       this._timeoutInfo.delete(messageId);
     }
   }
+  /**
+   * Attaches to the given transport, starts it, and starts listening for messages.
+   *
+   * The Protocol object assumes ownership of the Transport, replacing any callbacks that have already been set, and expects that it is the only user of the Transport instance going forward.
+   */
   async connect(transport) {
     var _a, _b, _c;
     if (this._transport) {
@@ -11737,10 +12556,40 @@ var Protocol = class {
   get transport() {
     return this._transport;
   }
+  /**
+   * Closes the connection.
+   */
   async close() {
     var _a;
     await ((_a = this._transport) == null ? void 0 : _a.close());
   }
+  /**
+   * Sends a request and returns an AsyncGenerator that yields response messages.
+   * The generator is guaranteed to end with either a 'result' or 'error' message.
+   *
+   * @example
+   * ```typescript
+   * const stream = protocol.requestStream(request, resultSchema, options);
+   * for await (const message of stream) {
+   *   switch (message.type) {
+   *     case 'taskCreated':
+   *       console.log('Task created:', message.task.taskId);
+   *       break;
+   *     case 'taskStatus':
+   *       console.log('Task status:', message.task.status);
+   *       break;
+   *     case 'result':
+   *       console.log('Final result:', message.result);
+   *       break;
+   *     case 'error':
+   *       console.error('Error:', message.error);
+   *       break;
+   *   }
+   * }
+   * ```
+   *
+   * @experimental Use `client.experimental.tasks.requestStream()` to access this method.
+   */
   async *requestStream(request, resultSchema, options) {
     var _a, _b;
     const { task } = options ?? {};
@@ -11801,6 +12650,11 @@ var Protocol = class {
       };
     }
   }
+  /**
+   * Sends a request and waits for a response.
+   *
+   * Do not use this method to emit notifications! Use notification() instead.
+   */
   request(request, resultSchema, options) {
     const { relatedRequestId, resumptionToken, onresumptiontoken, task, relatedTask } = options ?? {};
     return new Promise((resolve, reject) => {
@@ -11924,18 +12778,41 @@ var Protocol = class {
       }
     });
   }
+  /**
+   * Gets the current status of a task.
+   *
+   * @experimental Use `client.experimental.tasks.getTask()` to access this method.
+   */
   async getTask(params, options) {
     return this.request({ method: "tasks/get", params }, GetTaskResultSchema, options);
   }
+  /**
+   * Retrieves the result of a completed task.
+   *
+   * @experimental Use `client.experimental.tasks.getTaskResult()` to access this method.
+   */
   async getTaskResult(params, resultSchema, options) {
     return this.request({ method: "tasks/result", params }, resultSchema, options);
   }
+  /**
+   * Lists tasks, optionally starting from a pagination cursor.
+   *
+   * @experimental Use `client.experimental.tasks.listTasks()` to access this method.
+   */
   async listTasks(params, options) {
     return this.request({ method: "tasks/list", params }, ListTasksResultSchema, options);
   }
+  /**
+   * Cancels a specific task.
+   *
+   * @experimental Use `client.experimental.tasks.cancelTask()` to access this method.
+   */
   async cancelTask(params, options) {
     return this.request({ method: "tasks/cancel", params }, CancelTaskResultSchema, options);
   }
+  /**
+   * Emits a notification, which is a one-way message that does not expect a response.
+   */
   async notification(notification, options) {
     var _a, _b, _c, _d;
     if (!this._transport) {
@@ -12013,6 +12890,11 @@ var Protocol = class {
     }
     await this._transport.send(jsonrpcNotification, options);
   }
+  /**
+   * Registers a handler to invoke when this protocol object receives a request with the given method.
+   *
+   * Note that this will replace any previous request handler for the same method.
+   */
   setRequestHandler(requestSchema, handler) {
     const method = getMethodLiteral(requestSchema);
     this.assertRequestHandlerCapability(method);
@@ -12021,14 +12903,25 @@ var Protocol = class {
       return Promise.resolve(handler(parsed, extra));
     });
   }
+  /**
+   * Removes the request handler for the given method.
+   */
   removeRequestHandler(method) {
     this._requestHandlers.delete(method);
   }
+  /**
+   * Asserts that a request handler has not already been set for the given method, in preparation for a new one being automatically installed.
+   */
   assertCanSetRequestHandler(method) {
     if (this._requestHandlers.has(method)) {
       throw new Error(`A request handler for ${method} already exists, which would be overridden`);
     }
   }
+  /**
+   * Registers a handler to invoke when this protocol object receives a notification with the given method.
+   *
+   * Note that this will replace any previous notification handler for the same method.
+   */
   setNotificationHandler(notificationSchema, handler) {
     const method = getMethodLiteral(notificationSchema);
     this._notificationHandlers.set(method, (notification) => {
@@ -12036,9 +12929,16 @@ var Protocol = class {
       return Promise.resolve(handler(parsed));
     });
   }
+  /**
+   * Removes the notification handler for the given method.
+   */
   removeNotificationHandler(method) {
     this._notificationHandlers.delete(method);
   }
+  /**
+   * Cleans up the progress handler associated with a task.
+   * This should be called when a task reaches a terminal status.
+   */
   _cleanupTaskProgressHandler(taskId) {
     const progressToken = this._taskProgressTokens.get(taskId);
     if (progressToken !== void 0) {
@@ -12046,6 +12946,17 @@ var Protocol = class {
       this._taskProgressTokens.delete(taskId);
     }
   }
+  /**
+   * Enqueues a task-related message for side-channel delivery via tasks/result.
+   * @param taskId The task ID to associate the message with
+   * @param message The message to enqueue
+   * @param sessionId Optional session ID for binding the operation to a specific session
+   * @throws Error if taskStore is not configured or if enqueue fails (e.g., queue overflow)
+   *
+   * Note: If enqueue fails, it's the TaskMessageQueue implementation's responsibility to handle
+   * the error appropriately (e.g., by failing the task, logging, etc.). The Protocol layer
+   * simply propagates the error.
+   */
   async _enqueueTaskMessage(taskId, message, sessionId) {
     var _a;
     if (!this._taskStore || !this._taskMessageQueue) {
@@ -12054,6 +12965,11 @@ var Protocol = class {
     const maxQueueSize = (_a = this._options) == null ? void 0 : _a.maxTaskQueueSize;
     await this._taskMessageQueue.enqueue(taskId, message, sessionId, maxQueueSize);
   }
+  /**
+   * Clears the message queue for a task and rejects any pending request resolvers.
+   * @param taskId The task ID whose queue should be cleared
+   * @param sessionId Optional session ID for binding the operation to a specific session
+   */
   async _clearTaskQueue(taskId, sessionId) {
     if (this._taskMessageQueue) {
       const messages = await this._taskMessageQueue.dequeueAll(taskId, sessionId);
@@ -12071,6 +12987,13 @@ var Protocol = class {
       }
     }
   }
+  /**
+   * Waits for a task update (new messages or status change) with abort signal support.
+   * Uses polling to check for updates at the task's configured poll interval.
+   * @param taskId The task ID to wait for
+   * @param signal Abort signal to cancel the wait
+   * @returns Promise that resolves when an update occurs or rejects if aborted
+   */
   async _waitForTaskUpdate(taskId, signal) {
     var _a, _b;
     let interval = ((_a = this._options) == null ? void 0 : _a.defaultTaskPollInterval) ?? 1e3;
@@ -12194,9 +13117,38 @@ function createDefaultAjvInstance() {
   return ajv;
 }
 var AjvJsonSchemaValidator = class {
+  /**
+   * Create an AJV validator
+   *
+   * @param ajv - Optional pre-configured AJV instance. If not provided, a default instance will be created.
+   *
+   * @example
+   * ```typescript
+   * // Use default configuration (recommended for most cases)
+   * import { AjvJsonSchemaValidator } from '@modelcontextprotocol/sdk/validation/ajv';
+   * const validator = new AjvJsonSchemaValidator();
+   *
+   * // Or provide custom AJV instance for advanced configuration
+   * import { Ajv } from 'ajv';
+   * import addFormats from 'ajv-formats';
+   *
+   * const ajv = new Ajv({ validateFormats: true });
+   * addFormats(ajv);
+   * const validator = new AjvJsonSchemaValidator(ajv);
+   * ```
+   */
   constructor(ajv) {
     this._ajv = ajv ?? createDefaultAjvInstance();
   }
+  /**
+   * Create a validator for the given JSON Schema
+   *
+   * The validator is compiled once and can be reused multiple times.
+   * If the schema has an $id, it will be cached by AJV automatically.
+   *
+   * @param schema - Standard JSON Schema object
+   * @returns A validator function that validates input data
+   */
   getValidator(schema) {
     const ajvValidator = "$id" in schema && typeof schema.$id === "string" ? this._ajv.getSchema(schema.$id) ?? this._ajv.compile(schema) : this._ajv.compile(schema);
     return (input) => {
@@ -12223,18 +13175,68 @@ var ExperimentalServerTasks = class {
   constructor(_server) {
     this._server = _server;
   }
+  /**
+   * Sends a request and returns an AsyncGenerator that yields response messages.
+   * The generator is guaranteed to end with either a 'result' or 'error' message.
+   *
+   * This method provides streaming access to request processing, allowing you to
+   * observe intermediate task status updates for task-augmented requests.
+   *
+   * @param request - The request to send
+   * @param resultSchema - Zod schema for validating the result
+   * @param options - Optional request options (timeout, signal, task creation params, etc.)
+   * @returns AsyncGenerator that yields ResponseMessage objects
+   *
+   * @experimental
+   */
   requestStream(request, resultSchema, options) {
     return this._server.requestStream(request, resultSchema, options);
   }
+  /**
+   * Gets the current status of a task.
+   *
+   * @param taskId - The task identifier
+   * @param options - Optional request options
+   * @returns The task status
+   *
+   * @experimental
+   */
   async getTask(taskId, options) {
     return this._server.getTask({ taskId }, options);
   }
+  /**
+   * Retrieves the result of a completed task.
+   *
+   * @param taskId - The task identifier
+   * @param resultSchema - Zod schema for validating the result
+   * @param options - Optional request options
+   * @returns The task result
+   *
+   * @experimental
+   */
   async getTaskResult(taskId, resultSchema, options) {
     return this._server.getTaskResult({ taskId }, resultSchema, options);
   }
+  /**
+   * Lists tasks with optional pagination.
+   *
+   * @param cursor - Optional pagination cursor
+   * @param options - Optional request options
+   * @returns List of tasks with optional next cursor
+   *
+   * @experimental
+   */
   async listTasks(cursor, options) {
     return this._server.listTasks(cursor ? { cursor } : void 0, options);
   }
+  /**
+   * Cancels a running task.
+   *
+   * @param taskId - The task identifier
+   * @param options - Optional request options
+   *
+   * @experimental
+   */
   async cancelTask(taskId, options) {
     return this._server.cancelTask({ taskId }, options);
   }
@@ -12279,6 +13281,9 @@ function assertClientRequestTaskCapability(requests, method, entityName) {
 
 // node_modules/@modelcontextprotocol/sdk/dist/esm/server/index.js
 var Server = class extends Protocol {
+  /**
+   * Initializes this server with the given name and version information.
+   */
   constructor(_serverInfo, options) {
     super(options);
     this._serverInfo = _serverInfo;
@@ -12309,6 +13314,13 @@ var Server = class extends Protocol {
       });
     }
   }
+  /**
+   * Access experimental features.
+   *
+   * WARNING: These APIs are experimental and may change without notice.
+   *
+   * @experimental
+   */
   get experimental() {
     if (!this._experimental) {
       this._experimental = {
@@ -12317,12 +13329,20 @@ var Server = class extends Protocol {
     }
     return this._experimental;
   }
+  /**
+   * Registers new capabilities. This can only be called before connecting to a transport.
+   *
+   * The new capabilities will be merged with any existing capabilities previously given (e.g., at initialization).
+   */
   registerCapabilities(capabilities) {
     if (this.transport) {
       throw new Error("Cannot register capabilities after connecting to transport");
     }
     this._capabilities = mergeCapabilities(this._capabilities, capabilities);
   }
+  /**
+   * Override request handler registration to enforce server-side validation for tools/call.
+   */
   setRequestHandler(requestSchema, handler) {
     var _a;
     const shape = getObjectShape(requestSchema);
@@ -12499,9 +13519,15 @@ var Server = class extends Protocol {
       ...this._instructions && { instructions: this._instructions }
     };
   }
+  /**
+   * After initialization has completed, this will be populated with the client's reported capabilities.
+   */
   getClientCapabilities() {
     return this._clientCapabilities;
   }
+  /**
+   * After initialization has completed, this will be populated with information about the client's name and version.
+   */
   getClientVersion() {
     return this._clientVersion;
   }
@@ -12511,6 +13537,7 @@ var Server = class extends Protocol {
   async ping() {
     return this.request({ method: "ping" }, EmptyResultSchema);
   }
+  // Implementation
   async createMessage(params, options) {
     var _a, _b;
     if (params.tools || params.toolChoice) {
@@ -12546,6 +13573,13 @@ var Server = class extends Protocol {
     }
     return this.request({ method: "sampling/createMessage", params }, CreateMessageResultSchema, options);
   }
+  /**
+   * Creates an elicitation request for the given parameters.
+   * For backwards compatibility, `mode` may be omitted for form requests and will default to `'form'`.
+   * @param params The parameters for the elicitation request.
+   * @param options Optional request options.
+   * @returns The result of the elicitation request.
+   */
   async elicitInput(params, options) {
     var _a, _b, _c, _d;
     const mode = params.mode ?? "form";
@@ -12581,6 +13615,14 @@ var Server = class extends Protocol {
       }
     }
   }
+  /**
+   * Creates a reusable callback that, when invoked, will send a `notifications/elicitation/complete`
+   * notification for the specified elicitation ID.
+   *
+   * @param elicitationId The ID of the elicitation to mark as complete.
+   * @param options Optional notification options. Useful when the completion notification should be related to a prior request.
+   * @returns A function that emits the completion notification when awaited.
+   */
   createElicitationCompletionNotifier(elicitationId, options) {
     var _a, _b;
     if (!((_b = (_a = this._clientCapabilities) == null ? void 0 : _a.elicitation) == null ? void 0 : _b.url)) {
@@ -12596,6 +13638,13 @@ var Server = class extends Protocol {
   async listRoots(params, options) {
     return this.request({ method: "roots/list", params }, ListRootsResultSchema, options);
   }
+  /**
+   * Sends a logging message to the client, if connected.
+   * Note: You only need to send the parameters object, not the entire JSON RPC message
+   * @see LoggingMessageNotification
+   * @param params
+   * @param sessionId optional for stateless and backward compatibility
+   */
   async sendLoggingMessage(params, sessionId) {
     if (this._capabilities.logging) {
       if (!this.isMessageIgnored(params.level, sessionId)) {
@@ -12669,6 +13718,9 @@ var StdioServerTransport = class {
       (_a = this.onerror) == null ? void 0 : _a.call(this, error2);
     };
   }
+  /**
+   * Starts listening for messages on stdin.
+   */
   async start() {
     if (this._started) {
       throw new Error("StdioServerTransport already started! If using Server class, note that connect() calls start() automatically.");
@@ -12791,7 +13843,7 @@ async function generateImage(prompt, count = 1, modelId = "imagen-3.0-generate-0
     await fs2.mkdir(outputDir, { recursive: true });
     const saveImage = async (base64Data, index) => {
       const buffer = Buffer.from(base64Data, "base64");
-      const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+      const timestamp = (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-");
       const filename = `img-${timestamp}-${index + 1}.png`;
       const filepath = path2.join(outputDir, filename);
       await fs2.writeFile(filepath, buffer);
